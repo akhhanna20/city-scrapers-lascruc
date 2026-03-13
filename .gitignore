@@ -27,8 +27,6 @@ wheels/
 *.egg
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -99,8 +97,6 @@ celerybeat-schedule
 .venv
 venv/
 ENV/
-documenters-aggregator/
-city-scrapers/
 
 # Spyder project settings
 .spyderproject
@@ -115,11 +111,6 @@ city-scrapers/
 # mypy
 .mypy_cache/
 
-# cyrus
-json_conversions.md
-.citybureau/
-city_scrapers/caps.py
-
 # legistar cache
 _cache/
 
@@ -133,4 +124,5 @@ src/
 logs/*.log
 travis/*.json
 
-# output files: local gitignore added to city_scrapers/local_outputs/
+# output files
+*.csv
