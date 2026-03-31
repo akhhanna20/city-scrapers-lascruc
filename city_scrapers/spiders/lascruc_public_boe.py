@@ -12,6 +12,10 @@ from scrapy_playwright.page import PageMethod
 TITLE_MAP = {
     "work session": "board of education",
     "regular session": "board of education",
+    "retreat": "board of education",
+    "retreat (extended work session)": "board of education",
+    "special board meeting": "board of education",
+    "extended work session": "board of education",
     "finance subcommittee meeting": "finance subcommittee",
     "finance committee": "finance subcommittee",
     "budget town hall ii meeting": "budget town hall meeting",
@@ -22,7 +26,21 @@ TITLE_MAP = {
 def _normalize_title(title):
     """Lowercase, strip, and resolve known variations."""
     t = " ".join(title.lower().split())
+    # Remove trailing date patterns
+    t = re.sub(
+        r"\s+(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|"  # 5-15-2025 or 5/15/2025
+        r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"  # 2025-05-15
+        r"(?:jan|feb|mar|apr|may|jun|"
+        r"jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})$",  # May 15, 2025
+        "",
+        t,
+    ).strip()
     return TITLE_MAP.get(t, t)
+
+
+def _build_href(href):
+    """Normalize protocol-relative URLs to https."""
+    return ("https:" + href) if href.startswith("//") else href
 
 
 class LascrucPublicBoeSpider(CityScrapersSpider):
@@ -38,11 +56,7 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
         "PLAYWRIGHT_LAUNCH_OPTIONS": {
             "headless": True,
-            "args": [
-                "--no-sandbox",
-                "--disable-gpu",
-                "--blink-settings=imagesEnabled=false",
-            ],
+            "args": ["--no-sandbox"],
         },
         "DOWNLOAD_HANDLERS": {
             "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
@@ -87,8 +101,7 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             agenda_href = ""
             agenda_a = row.css("td.listItem a[href*='AgendaViewer']")
             if agenda_a:
-                href = agenda_a.attrib["href"]
-            agenda_href = ("https:" + href) if href.startswith("//") else href
+                agenda_href = _build_href(agenda_a.attrib["href"])
 
             # Video link from onclick JS attribute
             video_href = ""
@@ -97,8 +110,7 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             )
             m = re.search(r"window\.open\('([^']+)'", onclick)
             if m:
-                href = m.group(1)
-            video_href = ("https:" + href) if href.startswith("//") else href
+                video_href = _build_href(m.group(1))
 
             self.additional_links.setdefault(date_key, []).append(
                 {
@@ -130,11 +142,8 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
         """Parse both the current-year table and all archive accordion tables."""
         yield from self._parse_main_table(response.css("div.pb-table table"))
 
-        for panel in response.css(".panel, .accordion-item, [data-v-96d80c27]"):
-            panel_title = (
-                panel.css(".panel-title::text").get("")
-                or panel.css(".accordion-header::text").get("")
-            ).strip()
+        for panel in response.css(".pb-accordion-panel"):
+            panel_title = panel.css(".panel-title::text").get("").strip()
             if not re.search(r"\d{4}-\d{4}", panel_title):
                 continue
             for table in panel.css("table"):
@@ -143,11 +152,21 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
     def _parse_main_table(self, table_sel):
         for row in table_sel.css("tr")[1:]:
             cells = row.css("td")
-            if not cells or not cells[0].css("p::text").get("").strip():
+            if not cells or not (
+                cells[0].css("p::text").get("").strip()
+                or cells[0].css("p span::text").get("").strip()
+            ):
                 continue
 
-            date_text = cells[0].css("p::text").get(default="").strip()
-            time_text = cells[1].css("p::text").get(default="").strip()
+            date_text = (
+                cells[0].css("p::text").get()
+                or cells[0].css("p span::text").get(default="")
+            ).strip()
+            time_text = (
+                cells[1].css("p::text").get()
+                or cells[1].css("p span::text").get(default="")
+            ).strip()
+
             location_text = (
                 cells[2].css("p span::text").get()
                 or cells[2].css("p::text").get(default="")
@@ -157,8 +176,7 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             if not date_text or not meeting_type:
                 continue
 
-            time_clean = time_text.replace("p.m.", "PM").replace("a.m.", "AM")
-            start = self._parse_dt(f"{date_text} {time_clean}") or self._parse_dt(
+            start = self._parse_dt(f"{date_text} {time_text}") or self._parse_dt(
                 date_text
             )
             if not start:
@@ -226,9 +244,16 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
 
     def _parse_dt(self, text):
         try:
-            return dateparse(
-                text, fuzzy=True, tzinfos={"PM": None, "AM": None, "M": None}
+            # Normalize a.m./p.m. → AM/PM
+            clean = (
+                text.replace("a.m.", "AM")
+                .replace("p.m.", "PM")
+                .replace("A.M.", "AM")
+                .replace("P.M.", "PM")
             )
+
+            return dateparse(clean, fuzzy=True)
+
         except (ValueError, OverflowError):
             return None
 
