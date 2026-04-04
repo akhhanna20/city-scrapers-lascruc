@@ -8,41 +8,6 @@ from city_scrapers_core.spiders import CityScrapersSpider
 from dateutil.parser import parse as dateparse
 from scrapy_playwright.page import PageMethod
 
-# Title normalization — maps Granicus titles → canonical titles
-TITLE_MAP = {
-    "work session": "board of education",
-    "regular session": "board of education",
-    "retreat": "board of education",
-    "retreat (extended work session)": "board of education",
-    "special board meeting": "board of education",
-    "special meeting": "board of education",
-    "extended work session": "board of education",
-    "finance subcommittee meeting": "finance subcommittee",
-    "finance committee": "finance subcommittee",
-    "budget town hall ii meeting": "budget town hall meeting",
-    "budget town hall ii": "budget town hall meeting",
-}
-
-
-def _normalize_title(title):
-    """Lowercase, strip, and resolve known variations."""
-    t = " ".join(title.lower().split())
-    # Remove trailing date patterns
-    t = re.sub(
-        r"\s+(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|"  # 5-15-2025 or 5/15/2025
-        r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"  # 2025-05-15
-        r"(?:jan|feb|mar|apr|may|jun|"
-        r"jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})$",  # May 15, 2025
-        "",
-        t,
-    ).strip()
-    return TITLE_MAP.get(t, t)
-
-
-def _build_href(href):
-    """Normalize protocol-relative URLs to https."""
-    return ("https:" + href) if href.startswith("//") else href
-
 
 class LascrucPublicBoeSpider(CityScrapersSpider):
     name = "lascruc_public_boe"
@@ -71,6 +36,62 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
         super().__init__(*args, **kwargs)
         # date_str (YYYY-MM-DD) -> list of {title, video_href}
         self.video_links = {}
+
+    # Title normalization — maps known variations
+    TITLE_MAP = {
+        "work session": "board of education",
+        "regular session": "board of education",
+        "retreat": "board of education",
+        "retreat (extended work session)": "board of education",
+        "special board meeting": "board of education",
+        "special meeting": "board of education",
+        "extended work session": "board of education",
+        "finance subcommittee meeting": "finance subcommittee",
+        "finance committee": "finance subcommittee",
+        "budget town hall ii meeting": "budget town hall meeting",
+        "budget town hall ii": "budget town hall meeting",
+    }
+
+    LOCATION_MAP = {
+        "Trujillo": {
+            "name": "Dr. Karen M. Trujillo Administration Complex, Board Room",
+            "address": "505 S. Main St., Suite 249, Las Cruces, NM 88001",
+        },
+        "Administration Complex": {
+            "name": "Dr. Karen M. Trujillo Administration Complex",
+            "address": "505 S. Main St., Suite 249, Las Cruces, NM 88001",
+        },
+        "Cesar Chavez": {
+            "name": "Cesar Chavez Elementary School, Cafeteria",
+            "address": "5250 Holman Road, Las Cruces, NM 88012",
+        },
+        "Organ Mountain": {
+            "name": "Organ Mountain High School Library",
+            "address": "5700 Mesa Grande Drive, Las Cruces, NM 88012",
+        },
+        "Ana Community College": {
+            "name": "Dona Ana Community College",
+            "address": "2800 N. Sonoma Ranch Blvd, Las Cruces, NM 88011",
+        },
+    }
+
+    def _normalize_title(self, title):
+        """Lowercase, strip, and resolve known variations."""
+        t = " ".join(title.lower().split())
+        # Remove trailing date patterns
+        t = re.sub(
+            r"\s+(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|"  # 5-15-2025 or 5/15/2025
+            r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|"  # 2025-05-15
+            r"(?:jan|feb|mar|apr|may|jun|"
+            r"jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4})$",  # May 15, 2025
+            "",
+            t,
+        ).strip()
+        return self.TITLE_MAP.get(t, t)
+
+    def _build_href(self, href):
+        """Normalize protocol-relative URLs to https."""
+        return ("https:" + href) if href.startswith("//") else href
 
     def start_requests(self):
         """First fetch attachments from the secondary source (plain HTTP), then scrape lcps.net with Playwright."""  # noqa
@@ -113,11 +134,11 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             )
             m = re.search(r"window\.open\('([^']+)'", onclick)
             if m:
-                video_href = _build_href(m.group(1))
+                video_href = self._build_href(m.group(1))
 
             self.video_links.setdefault(date_key, []).append(
                 {
-                    "norm_title": _normalize_title(title_raw),
+                    "norm_title": self._normalize_title(title_raw),
                     "video_href": video_href,
                 }
             )
@@ -167,6 +188,12 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             time_text = (
                 cells[1].css("p::text").get() or cells[1].css("p span::text").get("")
             ).strip()
+            # Detect cancellation in the time column
+            is_cancelled = (
+                "cancelled" in time_text.lower() or "canceled" in time_text.lower()
+            )
+            if is_cancelled:
+                time_text = ""
 
             location_text = (
                 cells[2].css("p span::text").get() or cells[2].css("p::text").get("")
@@ -185,6 +212,16 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             links = self._parse_links(cells)
             links = self._attach_video(links, start, meeting_type)
 
+            parsed_location = self._parse_location(location_text)
+            is_virtual = "virtual" in location_text.lower()
+            is_unknown_address = not location_text or parsed_location["address"] == ""
+
+            time_notes = ""
+            if is_virtual or is_unknown_address:
+                time_notes = "Please refer to the meeting attachments for the meeting time and location."  # noqa
+
+            status_text = f"{meeting_type} CANCELLED" if is_cancelled else meeting_type
+
             meeting = Meeting(
                 title=self._parse_title(meeting_type),
                 description="",
@@ -192,19 +229,19 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
                 start=start,
                 end=None,
                 all_day=False,
-                time_notes="",
-                location=self._parse_location(location_text),
+                time_notes=time_notes,
+                location=parsed_location,
                 links=links,
                 source=self.source_url,
             )
 
-            meeting["status"] = self._get_status(meeting, meeting_type)
+            meeting["status"] = self._get_status(meeting, status_text)
             meeting["id"] = self._get_id(meeting)
 
             yield meeting
 
     def _attach_video(self, links, start, meeting_type):
-        norm = _normalize_title(meeting_type)
+        norm = self._normalize_title(meeting_type)
         for delta in range(-1, 2):
             key = (start + timedelta(days=delta)).strftime("%Y-%m-%d")
             match = next(
@@ -255,13 +292,9 @@ class LascrucPublicBoeSpider(CityScrapersSpider):
             return {"name": "", "address": ""}
         if "Virtual" in location_text:
             return {"name": "Virtual Meeting", "address": ""}
-        if "Trujillo" in location_text or "Administration Complex" in location_text:
-            parts = location_text.split(",")
-            room = parts[-1].strip() if len(parts) > 1 else ""
-            return {
-                "name": f"Dr. Karen M. Trujillo Administration Complex{', ' + room if room else ''}",  # noqa
-                "address": "505 S. Main St., Suite 249, Las Cruces, NM 88001",
-            }
+        for keyword, location in self.LOCATION_MAP.items():
+            if keyword in location_text:
+                return location
         return {"name": location_text, "address": ""}
 
     def _parse_links(self, cells):
