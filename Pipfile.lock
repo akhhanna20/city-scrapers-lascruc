@@ -603,6 +603,20 @@
             "markers": "python_version >= '3.10'",
             "version": "==1.11.0"
         },
+        "playwright": {
+            "hashes": [
+                "sha256:185e0132578733d02802dfddfbbc35f42be23a45ff49ccae5081f25952238117",
+                "sha256:1e03be090e75a0fabbdaeab65ce17c308c425d879fa48bb1d7986f96bfad0b99",
+                "sha256:32ffe5c303901a13a0ecab91d1c3f74baf73b84f4bedbb6b935f5bc11cc98e1b",
+                "sha256:70c763694739d28df71ed578b9c8202bb83e8fe8fb9268c04dd13afe36301f71",
+                "sha256:8f9999948f1ab541d98812de25e3a8c410776aa516d948807140aff797b4bffa",
+                "sha256:96e3204aac292ee639edbfdef6298b4be2ea0a55a16b7068df91adac077cc606",
+                "sha256:a2bf639d0ce33b3ba38de777e08697b0d8f3dc07ab6802e4ac53fb65e3907af8",
+                "sha256:c95568ba1eda83812598c1dc9be60b4406dffd60b149bc1536180ad108723d6b"
+            ],
+            "markers": "python_version >= '3.9'",
+            "version": "==1.58.0"
+        },
         "protego": {
             "hashes": [
                 "sha256:3466f41438421cf90008e98534d5fde47dc16a17482571d021143ac18b70ace9",
@@ -827,6 +841,15 @@
             "index": "pypi",
             "markers": "python_version >= '3.8'",
             "version": "==2.11.2"
+        },
+        "scrapy-playwright": {
+            "hashes": [
+                "sha256:2efe31155b2bbbd13fb011f3c189c21a6f34409c7f7b958881780509ce14a6bb",
+                "sha256:8b20c504d773ec744ae81f5383989d04ba01dbf5e6c1991c0816e2f877398c54"
+            ],
+            "index": "pypi",
+            "markers": "python_version >= '3.10'",
+            "version": "==0.0.46"
         },
         "scrapy-sentry-errors": {
             "hashes": [
