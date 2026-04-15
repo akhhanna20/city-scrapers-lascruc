@@ -256,10 +256,10 @@ jobs:
 
           slug = '${{ secrets.PROGRAM_SLUG }}'
           program_meetings = Meeting.objects.filter(programs__slug=slug)
-          without_assignments = program_meetings.filter(assignments__isnull=True).distinct()
+          without_assignments = program_meetings.scraped().filter(assignments__isnull=True).distinct()
           count = without_assignments.count()
           without_assignments.delete()
-          print(f'Deleted {count} meetings without assignments')
+          print(f'Deleted {count} scraped meetings without assignments')
           PYEOF
 
       - name: Queue data import
